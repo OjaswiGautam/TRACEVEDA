@@ -10,8 +10,48 @@ from database import db
 
 DATA_FOLDER = (
     Path(__file__).parent
-    / "TraceVeda_Master_Dataset_Updated"
+    / "TraceVeda_Master_Dataset"
 )
+
+BATCH_SIZE = 5000
+
+
+# ==================================================
+# CONVERT VALUE
+# ==================================================
+
+def convert_value(value):
+
+    if value is None:
+        return None
+
+    value = value.strip()
+
+    if value == "":
+        return None
+
+    # Boolean
+    if value.lower() == "true":
+        return True
+
+    if value.lower() == "false":
+        return False
+
+    # Integer
+    try:
+        if "." not in value:
+            return int(value)
+    except ValueError:
+        pass
+
+    # Float
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # String
+    return value
 
 
 # ==================================================
@@ -22,12 +62,18 @@ def import_csv(file_path):
 
     collection_name = file_path.stem
 
-    print(f"\nImporting: {file_path.name}")
+    print("\n" + "=" * 50)
+    print(f"Importing: {file_path.name}")
     print(f"Collection: {collection_name}")
+    print("=" * 50)
 
     collection = db[collection_name]
 
-    documents = []
+    # Replace old dataset contents
+    collection.delete_many({})
+
+    batch = []
+    total_inserted = 0
 
     with open(
         file_path,
@@ -57,51 +103,37 @@ def import_csv(file_path):
 
                 key = key.strip()
 
-                if value is None:
-                    document[key] = None
-                    continue
+                document[key] = convert_value(value)
 
-                value = value.strip()
+            batch.append(document)
 
-                # Empty value
-                if value == "":
-                    document[key] = None
+            # Insert in batches
+            if len(batch) >= BATCH_SIZE:
 
-                # Boolean
-                elif value.lower() == "true":
-                    document[key] = True
+                result = collection.insert_many(batch)
 
-                elif value.lower() == "false":
-                    document[key] = False
+                total_inserted += len(
+                    result.inserted_ids
+                )
 
-                # Integer
-                elif value.isdigit():
-                    document[key] = int(value)
+                print(
+                    f"Inserted {total_inserted} documents..."
+                )
 
-                # Float
-                else:
-                    try:
-                        document[key] = float(value)
-                    except ValueError:
-                        document[key] = value
+                batch = []
 
-            documents.append(document)
+        # Insert remaining documents
+        if batch:
 
-    # Replace existing contents
-    collection.delete_many({})
+            result = collection.insert_many(batch)
 
-    # Insert documents
-    if documents:
+            total_inserted += len(
+                result.inserted_ids
+            )
 
-        result = collection.insert_many(documents)
-
-        print(
-            f"SUCCESS: "
-            f"{len(result.inserted_ids)} documents inserted"
-        )
-
-    else:
-        print("WARNING: CSV contains no data")
+    print(
+        f"SUCCESS: {total_inserted} documents inserted"
+    )
 
 
 # ==================================================
@@ -111,14 +143,16 @@ def import_csv(file_path):
 def main():
 
     print("=" * 50)
-    print("TraceVeda CSV → MongoDB Import")
+    print("TraceVeda CSV -> MongoDB Import")
     print("=" * 50)
 
     if not DATA_FOLDER.exists():
 
         print("\nERROR: Dataset folder not found!")
-        print(f"Expected location:")
+
+        print("\nExpected location:")
         print(DATA_FOLDER)
+
         return
 
     csv_files = sorted(
@@ -129,6 +163,7 @@ def main():
 
         print("\nERROR: No CSV files found!")
         print(DATA_FOLDER)
+
         return
 
     print(
@@ -143,6 +178,7 @@ def main():
         try:
 
             import_csv(file_path)
+
             successful += 1
 
         except Exception as e:
@@ -152,6 +188,7 @@ def main():
             print(
                 f"\nFAILED: {file_path.name}"
             )
+
             print(f"Reason: {e}")
 
     print("\n" + "=" * 50)
